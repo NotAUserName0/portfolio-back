@@ -14,6 +14,7 @@
    - [Opción A: Ejecución Local con Maven](#opción-a-ejecución-local-con-maven)
    - [Opción B: Despliegue con Docker (Recomendada)](#opción-b-despliegue-con-docker-recomendada)
    - [Opción C: Despliegue con Docker Compose](#opción-c-despliegue-con-docker-compose)
+   - [⚠️ Advertencias y Errores Comunes de Despliegue](#️-advertencias-y-errores-comunes-de-despliegue-en-servidores--vps)
 5. [📡 Catálogo de Endpoints (API Reference)](#-catálogo-de-endpoints-api-reference)
 6. [🛡️ Medidas de Seguridad Implementadas](#-medidas-de-seguridad-implementadas)
 7. [📂 Estructura del Proyecto](#-estructura-del-proyecto)
@@ -214,6 +215,43 @@ Para arrancar todo:
 ```bash
 docker compose up -d --build
 ```
+
+---
+
+### ⚠️ Advertencias y Errores Comunes de Despliegue en Servidores / VPS
+
+> [!WARNING]
+> **1. Coincidencia exacta de Orígenes CORS (`CORS_ALLOWED_ORIGINS`):**
+> * En entornos de producción o VPS, el navegador accede al frontend a través de la IP directa o dominio en el puerto 80 (ej. `http://<IP_O_DOMINIO_DEL_VPS>`) o puerto 443 (HTTPS).
+> * Si en tu `docker-compose.yml` configuras un puerto específico (como `:5000`) pero el frontend se sirve en el puerto 80 estándar, las peticiones del navegador llevarán `Origin: http://<IP_O_DOMINIO_DEL_VPS>` (sin el puerto), provocando que Spring Security rechace la conexión con **`403 Forbidden`** y la cabecera `Vary: Origin`.
+> * **Solución:** Incluye siempre el origen exacto donde corre el cliente en la variable de entorno:
+>   ```yaml
+>   - CORS_ALLOWED_ORIGINS=http://localhost:5173,http://<IP_O_DOMINIO_DEL_VPS>,https://tu-dominio.com
+>   ```
+
+> [!CAUTION]
+> **2. Archivos multimedia en `.gitignore` y sincronización con la Base de Datos:**
+> * El directorio `upload/` está deliberadamente ignorado en Git para no almacenar binarios pesados en el historial de código.
+> * **Efecto en Pipelines CI/CD (Jenkins):** Cuando Jenkins ejecuta `checkout scm` en el servidor, la carpeta `./upload` **estará completamente vacía**. Si la base de datos MariaDB ya contiene registros de pruebas locales (ej. nombres de imágenes previas), la BD apuntará a archivos que físicamente no existen en el disco del servidor.
+> * **Solución:** Vuelve a subir las imágenes a través del panel de administración del frontend una vez desplegado el sistema, o sincronízalas manualmente desde tu máquina local al VPS mediante `scp`:
+>   ```bash
+>   # Desde tu terminal local (PowerShell / Git Bash):
+>   scp -r upload/* usuario@<IP_O_DOMINIO_VPS>:/ruta/del/proyecto/upload/
+>   ```
+
+> [!IMPORTANT]
+> **3. Enmascaramiento de errores 404 a 403 en Spring Security 6 (`/error` permitAll):**
+> * Cuando un recurso estático solicitado no existe físicamente en el disco, Spring Boot despacha un reenvío interno (*internal forward*) al controlador `/error`.
+> * Si la ruta `/error` no está permitida con `.permitAll()` en [SecurityConfig.java](src/main/java/com/portfolio/porfolio/config/SecurityConfig.java), Spring Security evaluará la petición de error contra `.anyRequest().authenticated()`.
+> * Al ser una petición de imagen pública sin cabecera `Authorization: Bearer`, Spring Security responderá con **`403 Forbidden`** (con `Content-Length: 0`), encubriendo el error real que era un simple `404 Not Found`.
+
+> [!TIP]
+> **4. Configuración resiliente de rutas estáticas (`ResoursesConfig`):**
+> * En entornos Linux dentro de contenedores Alpine, las rutas de trabajo pueden variar según el `WORKDIR` del Dockerfile (`/app`). Para garantizar resolución sin importar el sistema operativo, [ResoursesConfig.java](src/main/java/com/portfolio/porfolio/config/ResoursesConfig.java) implementa múltiples ubicaciones de búsqueda:
+>   ```java
+>   registry.addResourceHandler("/upload/**")
+>           .addResourceLocations(locationUri, "file:" + uploadDir + "/", "file:/app/upload/");
+>   ```
 
 ---
 
