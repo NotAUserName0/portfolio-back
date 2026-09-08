@@ -68,6 +68,8 @@ public class SecurityConfig {
                 // Explicitly permit access to uploaded static images so frontend can render them
                 .requestMatchers("/upload/**").permitAll()
                 .requestMatchers("/auth", "/auth/**").permitAll()
+                // Permit error dispatch so missing resources return 404 instead of 403
+                .requestMatchers("/error").permitAll()
                 .anyRequest().authenticated()
             ).sessionManagement(session -> session
                 .sessionCreationPolicy(SessionCreationPolicy.STATELESS) // Stateless: no HTTP session stored on server
